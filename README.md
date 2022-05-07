@@ -6,6 +6,6 @@
 ### 2.Log Content Parsing
  A novel tree-style log and event representation approach, which can effectively cope with the variable-length parameters
 ## Datasets 
-https://github.com/logpai
+https://github.com/logpai/loghub
 ## Results
 The experience result containing accuracy, efficiency, evolvingLogs result and content identification result.

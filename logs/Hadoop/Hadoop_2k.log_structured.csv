@@ -1,4 +1,4 @@
-LineId,Date,Time,Level,Process,Component,Content,EventId,EventTemplate
+LineId,authentication failure;,Time,Level,Process,Component,Content,EventId,EventTemplate
 1,2015-10-18,"18:01:47,978",INFO,main,org.apache.hadoop.mapreduce.v2.app.MRAppMaster,Created MRAppMaster for application appattempt_1445144423722_0020_000001,E29,Created MRAppMaster for application appattempt_<*>
 2,2015-10-18,"18:01:48,963",INFO,main,org.apache.hadoop.mapreduce.v2.app.MRAppMaster,Executing with tokens:,E42,Executing with tokens:
 3,2015-10-18,"18:01:48,963",INFO,main,org.apache.hadoop.mapreduce.v2.app.MRAppMaster,"Kind: YARN_AM_RM_TOKEN, Service: , Ident: (appAttemptId { application_id { id: 20 cluster_timestamp: 1445144423722 } attemptId: 1 } keyId: -127633188)",E61,"Kind: YARN_AM_RM_TOKEN, Service: , Ident: (appAttemptId { application_id { id: <*> cluster_timestamp: <*> } attemptId: <*> } keyId: <*>)"

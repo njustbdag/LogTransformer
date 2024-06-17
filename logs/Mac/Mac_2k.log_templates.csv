@@ -166,10 +166,10 @@ E164,Captive: CNPluginHandler en0: Evaluating
 E165,Captive: CNPluginHandler en0: Inactive
 E166,"CCDataTap::profileRemoved, Owner: <*>, Name: <*>"
 E167,CCFile::captureLog
-E168,"CCFile::captureLog Received Capture notice id: <*>, reason = RoamFail:sts:<NUM>_rsn:<NUM>"
-E169,"CCFile::captureLog Received Capture notice id: <*>, reason = AssocFail:sts:<NUM>_rsn:<NUM>"
-E170,"CCFile::captureLog Received Capture notice id: <*>, reason = DeauthInd:sts:<NUM>_rsn:<NUM>"
-E171,"CCFile::captureLog Received Capture notice id: <*>, reason = AuthFail:sts:<NUM>_rsn:<NUM>"
+E168,"CCFile::captureLog Received Capture notice id: <*>, reason = RoamFail:sts:<*>_rsn:<*>"
+E169,"CCFile::captureLog Received Capture notice id: <*>, reason = AssocFail:sts:<*>_rsn:<*>"
+E170,"CCFile::captureLog Received Capture notice id: <*>, reason = DeauthInd:sts:<*>_rsn:<*>"
+E171,"CCFile::captureLog Received Capture notice id: <*>, reason = AuthFail:sts:<*>_rsn:<*>"
 E172,"CCFile::captureLogRun Skipping current file Dir file [<*>-<*>-<*>_<*>,<*>,<*>.<*>]-<*>, Current File [<*>-<*>-<*>_<*>,<*>,<*>.<*>]-<*>"
 E173,CCFile::captureLogRun() Exiting CCFile::captureLogRun
 E174,"CCFile::copyFile fileName is [<*>-<*>-<*>_<*>,<*>,<*>.<*>]-<*>, source path:<*>, dest path:<*>"

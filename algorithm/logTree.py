@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class Tree:
     def __init__(self, size, depth=0):
         self.size = float(size)
@@ -73,19 +72,7 @@ class LogTree:
         logMessage = self.logMessage
         rnIdx = -2
         lTree.addNode(value=logMessage[0], index=-2, depth=0)
-
-        # based on ',' divide logMsg into segment
-        pos = 1
-        if rnIdx == -2:
-            pos = 0
-        for i in range(pos, len(logMessage), 1):
-            token = logMessage[i]
-            if token[len(token) - 1] == ',':
-                segment.append(logMessage[pos:i + 1:])
-                pos = i + 1
-            elif i == len(logMessage) - 1:
-                segment.append(logMessage[pos:i + 1:])
-
+        segment = [logMessage]
         staticIndex = 1
         if rnIdx == -2:
             staticIndex = 0

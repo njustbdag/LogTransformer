@@ -1,12 +1,15 @@
 import os
-import regex as re
+import re
 from datetime import datetime
 import pandas as pd
 import numpy as np
+from pympler import asizeof
 from algorithm import logTree
 import hashlib
 import operator
 import nltk
+import math
+
 
 class Logcluster:
     def __init__(self, eventTree=None, logIDL=None):
@@ -14,7 +17,6 @@ class Logcluster:
         if logIDL is None:
             logIDL = []
         self.logIDL = logIDL
-        self.st = 0.5
 
 
 class ParseTreeNode:
@@ -28,7 +30,7 @@ class ParseTreeNode:
 
 
 class Parser:
-    def __init__(self, log_format='', indir='./', outdir='./result/', st=0):
+    def __init__(self, log_format='', indir='./', outdir='./result/', st=0, rgx=[], span=1):
         self.log_format = log_format
         self.path = indir
         self.savePath = outdir
@@ -38,14 +40,12 @@ class Parser:
         self.lcs1 = [],
         self.lcs2 = [],
         self.new_et_vec = {}
+        self.regex = rgx
+        self.span = span
 
-    def parse(self, logName, span):
+    def parse(self, logName):
         print('Parsing file: ' + os.path.join(self.path, logName))
         start_time = datetime.now()
-        time0 = datetime.now() - datetime.now()
-        time1 = datetime.now() - datetime.now()
-        time2 = datetime.now() - datetime.now()
-        time3 = datetime.now() - datetime.now()
         logID = None
         match_count = 0
         logline_count = 0
@@ -59,31 +59,27 @@ class Parser:
                 logID = line['LineId']
                 start = datetime.now()
                 logmessageL = line['Content'].strip().split()
-                time0 += datetime.now() - start
                 start = datetime.now()
                 logmessageL = self.splitColomn(logmessageL)
                 lTree = logTree.LogTree(logmessageL).logToTree()
-                time1 += datetime.now() - start
                 start = datetime.now()
-                flag, matchCluster, count = self.parseTreeSearch(rootNode, lTree, span)
+                flag, matchCluster, count = self.parseTreeSearch(rootNode, lTree)
                 match_count += count
-                time2 += datetime.now() - start
                 start = datetime.now()
                 if matchCluster is None:
                     if self.tokenIsDigit(lTree.getIndicator()) is True:
                         lTree.nodes[0][lTree.getIndicatorIdx()] = ['<*>']
                     self.checkVerb(lTree)
+                    paramLen = self.getParmLen(lTree)
                     newCluster = Logcluster(eventTree=lTree, logIDL=[logID])
                     logCluL.append(newCluster)
                     indicator = lTree.size
                     self.updateParseTree(rootNode, newCluster, indicator, indicator, flag, logCluL)
-                    update_count += 1
                 if matchCluster is not None:
                     newE = self.getEventTree(lTree, matchCluster.eventTree)
                     matchCluster.logIDL.append(logID)
                     matchCluster.eventTree = newE
                     update_count += 1
-                time3 += datetime.now() - start
                 logline_count += 1
                 if logline_count % 1000 == 0 or logline_count == len(self.df_log):
                     print('Processed {0:.1f}% of log lines.'.format(logline_count * 100.0 / len(self.df_log)))
@@ -93,16 +89,11 @@ class Parser:
             self.outputResult(logCluL)
             time = datetime.now() - start_time
             print('Parsing done. [Time taken: {!s} s]'.format(time))
-            print('preprocess [Time taken: {!s} ms]'.format(time0.total_seconds() * 1000 / logline_count))
-            print('logTreeGenerate [Time taken: {!s} ms]'.format(time1.total_seconds() * 1000 / logline_count))
-            print('parseTreeSearch [Time taken: {!s} ms]'.format(time2.total_seconds() * 1000 / match_count))
-            print('parseTreeUpdate [Time taken: {!s} ms]'.format(time3.total_seconds() * 1000 / update_count))
-            print('total_logline_count:' + str(logline_count))
-            print('total_match_count:' + str(match_count))
-            print('total_update_count:' + str(update_count))
             return time.total_seconds()
 
     def outputResult(self, logCluL):
+        if not os.path.exists(self.savePath):
+            os.mkdir(self.savePath)
         logID = None
         try:
             log_templates = [0] * self.df_log.shape[0]
@@ -160,26 +151,27 @@ class Parser:
         return template_str
 
     def checkVerb(self, lt):
-        for key, item in lt.nodes[1].items():
-            token = item[0]
-            if len(token) == 1: continue
-            tags = nltk.pos_tag(nltk.word_tokenize(token))
-            for tag in tags:
-                if 'POST'.lower() in tag[0].lower() or 'DELETE'.lower() in tag[0].lower() \
-                        or 'GET'.lower() in tag[0].lower():
-                    item.append('V')
-                    break
-                if 'V' in tag[1]:
-                    item.append('V')
-                    break
+        tokens, positions = self.getStaticNodes(lt)
+        tags = nltk.pos_tag(tokens)
+        for index in positions:
+            if 'rdd_' in tags[index][0]: continue
+            if 'V' in tags[index][1] or 'GET' in tags[index][0] or 'DELETE' in tags[index][0] or 'POST' in tags[index][
+                0] or 'boot' in tags[index][0] or 'wait' in tags[index][0]:
+                flag = True
+                for currentRex in self.regex:
+                    if re.search(currentRex, tags[index][0]) is not None:
+                        flag = False
+                        break
+                if flag:
+                    lt.nodes[1][index].append('V')
 
     def splitColomn(self, logmessageL):
         offset = 0
         for i in range(0, len(logmessageL)):
             token = logmessageL[i + offset]
             if ':' in token and token[len(token) - 1] != ':':
-                tokens = list(filter(lambda x: x!='',token.split(':')))
-                # didn't split timestamp, such as 00:01
+                tokens = list(filter(lambda x: x != '', token.split(':')))
+                # don't split timestamp, such as 00:01
                 flag = True
                 for t in tokens:
                     flag = t.isdigit()
@@ -191,7 +183,7 @@ class Parser:
                 for j in range(0, len(tokens)):
                     if j < len(tokens) - 1:
                         logmessageL.insert(i + offset, tokens[j] + ':')
-                        logmessageL, i, offset = self.splitByEqual(tokens[j]+':', logmessageL, i, offset)
+                        logmessageL, i, offset = self.splitByEqual(tokens[j] + ':', logmessageL, i, offset)
                     else:
                         logmessageL.insert(i + offset, tokens[j])
                         logmessageL, i, offset = self.splitByEqual(tokens[j], logmessageL, i, offset)
@@ -219,7 +211,7 @@ class Parser:
         for childD1 in rt.childD.items():
             childD2 = childD1[1]
             for i in range(len(childD2.childD)):
-                print("EventTree" + str(count + 1) + ":",end='')
+                print("EventTree" + str(count + 1) + ":", end='')
                 count += 1
                 tree = childD2.childD[i].eventTree
                 tree.printTree()
@@ -228,7 +220,7 @@ class Parser:
     def getEventTree(self, lt, et):
         verbList = []
         for key, item in et.nodes[1].items():
-            if item is None:continue
+            if item is None: continue
             if len(item) == 2:
                 verbList.append(item[0])
         new_et = logTree.Tree(et.size)
@@ -246,13 +238,13 @@ class Parser:
                 if -1 in et.nodes[1].keys() or lt_lcs[0][1] != et_lcs[0][1] or 0 in self.new_et_vec.keys():
                     new_et.addNode(value=None, index=-1, depth=1)
                 if i + 1 in self.new_et_vec.keys():
-                    new_et.addNode(value=self.new_et_vec[i+1], index=i, depth=2)
+                    new_et.addNode(value=self.new_et_vec[i + 1], index=i, depth=2)
             else:
                 if lt_lcs[i][0] in verbList:
                     lt_lcs[i][0] = [lt_lcs[i][0], 'V']
-                new_et.addNode(value=lt_lcs[i][0], index=i+offset, depth=1)
-                if i+1 in self.new_et_vec.keys():
-                    new_et.addNode(value=self.new_et_vec[i+1], index=i+offset, depth=2)
+                new_et.addNode(value=lt_lcs[i][0], index=i + offset, depth=1)
+                if i + 1 in self.new_et_vec.keys():
+                    new_et.addNode(value=self.new_et_vec[i + 1], index=i + offset, depth=2)
         return new_et
 
     def updateParseTree(self, rn, logClust, old_indicator, indicator, flag, logCluL):
@@ -269,25 +261,98 @@ class Parser:
             else:
                 firstLayerNode.childD.append(logClust)
 
-    def parseTreeSearch(self, rn, lt, span):
+    def getStaticTokens(self, tree):
+        tokens = []
+        for index, item in tree.nodes[1].items():
+            if index == -1: continue
+            if len(item) == 1:
+                tokens.extend(item)
+            if len(item) == 2: tokens.append(item[0])
+        return tokens
+
+    def getStaticNodes(self, tree):
+        positions = []
+        tokens = []
+        for index, item in tree.nodes[1].items():
+            if index == -1: continue
+            if len(item) == 1:
+                tokens.extend(item)
+                positions.append(index)
+            if len(item) == 2:
+                tokens.append(item[0])
+                positions.append(index)
+        return tokens, positions
+
+    def getDigLen(self, tree):
+        tokens = self.getStaticTokens(tree)
+        count = 0
+        for token in tokens:
+            if len(re.findall('[0-9]+', token)) > 0:
+                count += 1
+        return count
+
+    def getParmLen(self, tree):
+        tokens = self.getStaticTokens(tree)
+        count = 0
+        for token in tokens:
+            if len(re.findall('[a-zA-Z]', token)) == len(token):
+                count += 1
+        return count
+
+    def randomSearch(self, tree1, tree2):
+        str1 = self.getStaticTokens(tree1)
+        str2 = self.getStaticTokens(tree2)
+        count = 0
+        flag = False
+        for token in str1:
+            if count >= math.ceil(len(str1) / 3):
+                flag = True
+                break
+            if token in str2:
+                count += 1
+        if count >= math.ceil(len(str1) / 3):
+            flag = True
+        return flag
+
+    def fastSearchEvent(self, logClusters, lt):
+        contain_verb_clusters = []
+        without_verb_clusters = []
+        for logClust in logClusters:
+            result, contain_verb = self.preCalSim(lt, logClust.eventTree)
+            if not result:
+                continue
+            else:
+                flag = self.randomSearch(logClust.eventTree, lt)
+                if flag:
+                    flag = self.randomSearch(lt, logClust.eventTree)
+                    if flag:
+                        if contain_verb:
+                            contain_verb_clusters.append(logClust)
+                        else:
+                            without_verb_clusters.append(logClust)
+        if len(contain_verb_clusters) > 0:
+            ret_logClusters = contain_verb_clusters
+        else:
+            ret_logClusters = without_verb_clusters + contain_verb_clusters
+        return ret_logClusters
+
+    def parseTreeSearch(self, rn, lt):
         """ check the current logTree if or not belongs to an existed logCluster
         """
         retLogClust = None
-        # flag = True: indicator tokens are different, and need to merge
         flag = False
         if len(rn.childD) == 0:
             return flag, retLogClust, 0
-        # fastSearch: filter the eventTrees with different rootNodes
         size = lt.size
         count = 1
         maxSim = -1
         for key in rn.childD.keys():
             # size：the size of the log tree, key：the size of the event tree
-            if abs(key-size) < span:
-                # abs<1: the size of log tree and event tree is same. Perform PreParsing based on the tree size.
-                # abs>=1: do not perform PreParsing.
+            if abs(key - size) < self.span:
                 nodeP = rn.childD[key]
                 logClusters = nodeP.childD
+                # Speed up searching with simple matching
+                logClusters = self.fastSearchEvent(logClusters, lt)
                 tmp_retLogClust, sim = self.findMatchCluster(logClusters, lt, maxSim)
                 if sim > maxSim:
                     retLogClust = tmp_retLogClust
@@ -303,7 +368,9 @@ class Parser:
         retLogClust = None
         maxClust = None
         logClust = None
+        count = 0
         for logClust in logClusters:
+            count += 1
             curSim, lcs11, lcs22, new_et_vec = self.calSimilarity(lt, logClust.eventTree)
             if curSim > maxSim:
                 maxClust = logClust
@@ -317,10 +384,6 @@ class Parser:
     def calSimilarity(self, lt, et):
         """ calculate the similarity between the current logTree and the logCluster's eventTree
         """
-        if self.preCalSim(lt, et): pass
-        else: return 0, None, None, None
-        # calculate the similarity of layer1
-        # if the layer 1 of the eventTree has a fake node, set the offset = 1
         # lcs1,lcs2: LCS sequences; seq1,seq2: sequences without '<*>'; nonCommon1,nonCommon2: non-LCS sequences
         lcs1, lcs2, seq1, seq2, nonCommon1, nonCommon2 = self.LCStoLIS(lt.nodes[1], et.nodes[1])
         count = len(lcs1)
@@ -340,16 +403,22 @@ class Parser:
     # Pre-similarity calculation is performed by whether the current log contains the verb constant in the event
     def preCalSim(self, lt, et):
         flag = True
+        contain_verb = False
         for et_key, et_item in et.nodes[1].items():
             if et_item is None: continue
             if len(et_item) == 2:
+                contain_verb = True
                 flag = False
                 for lt_key, lt_item in lt.nodes[1].items():
                     if lt_item is None: continue
                     if et_item[0] in lt_item[0]:
                         flag = True
-        if flag is False: return False
-        else: return True
+                if flag is False:
+                    return False, contain_verb
+        if flag is False:
+            return False, contain_verb
+        else:
+            return True, contain_verb
 
     def calDynamicSim(self, lt, et, lt_lcs, et_lcs, lt_nonCom, et_nonCom):
         gap_count = len(lt_lcs)
@@ -358,9 +427,11 @@ class Parser:
 
         # Calculate the gap vector of lt and et respectively
         start = 0
-        for i in range(gap_count+1):
-            if i == gap_count: lt_index = len(lt.nodes[1])+1
-            else:lt_index = lt_lcs[i][1]
+        for i in range(gap_count + 1):
+            if i == gap_count:
+                lt_index = len(lt.nodes[1]) + 1
+            else:
+                lt_index = lt_lcs[i][1]
             lt_vec[i] = [0.0, 0.0, 0.0, 0.0]
             lt_vec[i] = self.calDynamicVec(lt, start, lt_index, lt_nonCom, lt_vec[i])
             if i != gap_count: start = lt_lcs[i][1]
@@ -370,9 +441,11 @@ class Parser:
         else:
             start = 0
 
-        for i in range(gap_count+1):
-            if i == gap_count: et_index = len(et.nodes[1])+1
-            else: et_index = et_lcs[i][1]
+        for i in range(gap_count + 1):
+            if i == gap_count:
+                et_index = len(et.nodes[1]) + 1
+            else:
+                et_index = et_lcs[i][1]
             et_vec[i] = [0.0, 0.0, 0.0, 0.0]
             if start == -1:
                 et_vec[i] = self.calDynamicVec(et, -1, 0, et_nonCom, et_vec[i])
@@ -383,7 +456,7 @@ class Parser:
         delta_vec = {}
         sum = 0
         new_et_vec = {}
-        for i in range(gap_count+1):
+        for i in range(gap_count + 1):
             if np.linalg.norm(lt_vec[i]) == np.linalg.norm(et_vec[i]) and np.linalg.norm(lt_vec[i]) == 0:
                 continue
             if np.linalg.norm(lt_vec[i]) == 0 or np.linalg.norm(et_vec[i]) == 0:
@@ -394,14 +467,18 @@ class Parser:
                 sum += delta_vec[i]
                 new_et_vec[i] = (lt_vec[i] + et_vec[i]) / 2
         if len(delta_vec) != 0:
-            simd = sum/len(delta_vec)
-        else: simd = 1
+            simd = sum / len(delta_vec)
+        else:
+            simd = 1
         return simd, new_et_vec
 
     def calDynamicVec(self, tree, start, index, nonCom, tree_vec):
         for j in range(start, index):
             if j in nonCom.keys():
-                vec = self.wordToVect(nonCom[j])
+                tmp = nonCom[j]
+                if not isinstance(nonCom[j], str):
+                    tmp = nonCom[j][0]
+                vec = self.wordToVect(tmp)
                 if isinstance(tree_vec, list):
                     tree_vec += vec
                 else:
@@ -448,7 +525,7 @@ class Parser:
                 for i in range(index_subSeq, len(seq1)):
                     if token[0] == seq1[i][0]:
                         result1.append([token[0], i])
-                        index_subSeq = i+1
+                        index_subSeq = i + 1
                         break
                     else:
                         nonCommon1[i] = seq1[i][0]
@@ -467,7 +544,7 @@ class Parser:
         for count, index in enumerate(greedy_seq[1:]):
             if count >= 1:
                 if seq2[index][0] == seq2[greedy_seq[count]][0]:
-                    if index > greedy_seq[count-1]:
+                    if index > greedy_seq[count - 1]:
                         subSeq[index_sub] = index
                     continue
 
@@ -508,6 +585,11 @@ class Parser:
 
         if all(i == 0 for i in retVal):
             return retVal
+
+        if retVal[1] == 0 and retVal[2] == 0 and retVal[3] == 0:
+            return np.array([0, 0, 0, 0])
+            print('belongs word')
+
         retVal = np.array(retVal)
         # Euclidean distance
         retVal = retVal / np.linalg.norm(retVal)
